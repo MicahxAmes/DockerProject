@@ -18,6 +18,46 @@ resource "aws_subnet" "subnet2" {
   availability_zone = "us-east-1b"
 }
 
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+}
+
+resource "aws_route_table" "main" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
+}
+
+resource "aws_route_table_association" "subnet1" {
+  subnet_id      = aws_subnet.subnet1.id
+  route_table_id = aws_route_table.main.id
+}
+
+resource "aws_route_table_association" "subnet2" {
+  subnet_id      = aws_subnet.subnet2.id
+  route_table_id = aws_route_table.main.id
+}
+
+resource "aws_security_group" "lb_sg" {
+  vpc_id = aws_vpc.main.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
 
 resource "aws_security_group" "sg" {
   vpc_id = aws_vpc.main.id
@@ -74,20 +114,19 @@ resource "aws_ecs_task_definition" "main" {
   container_definitions = jsonencode([
     {
       name      = "myapp-webserver"
-      image     = "my-image",
-      essential = true,
-      memory    = 512,
-      cpu       = 256,
+      image     = "nginx:latest"
+      essential = true
+      memory    = 512
+      cpu       = 256
       portMappings = [
         {
-          containerPort = 80
-          hostPort      = 80
+          containerPort = 3000
+          hostPort      = 3000
         }
       ]
     }
   ])
 }
-
 
 resource "aws_ecs_service" "main" {
   name            = "my-service"
@@ -112,15 +151,16 @@ resource "aws_lb" "main" {
   name               = "my-lb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.sg.id]
-  subnets            = [aws_subnet.subnet.id, aws_subnet.subnet2.id]
+  security_groups    = [aws_security_group.lb_sg.id]
+  subnets            = [aws_subnet.subnet1.id, aws_subnet.subnet2.id]
 }
 
 resource "aws_lb_target_group" "main" {
-  name     = "my-tg"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  name        = "my-target-group"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
 }
 
 resource "aws_lb_listener" "main" {
@@ -133,4 +173,3 @@ resource "aws_lb_listener" "main" {
     target_group_arn = aws_lb_target_group.main.arn
   }
 }
-
